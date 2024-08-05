@@ -1,19 +1,21 @@
 import random
-from settings import NUM_PLAYERS, NUM_CARDS, LIVES, SUIT_EMOJIS
-from settings import clear_screen
+from settings import NUM_PLAYERS, NUM_CARDS, LIVES, SUIT_EMOJIS, clear_screen
+from tabulate import tabulate
+from colorama import init, Fore, Style
+
+# Initialize colorama
+init()
 
 SUITS = ["Hearts", "Diamonds", "Clubs", "Spades"]
 RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
 
 # Actions
-# obs1.: carteador sempre eh o primeiro a realizar as acoes
-# obs1.: so passa o bastao depois do final de uma rodada
-NEW_DEALER = 1  # self.id|next_player.id|1 (1 msg)
-DEAL_CARDS = 2  # dealer.id|next_player.d|2|cards,cards,cards... (3 msg)
-ASK_BETS = 3  # dealer.id|next_player.id|3|bet,bet,bet,bet (msg da a volta coletando a bet de cada um, que vai modificando a msg) (1 msg)
-SHOW_BETS = 4  # dealer.id|next_player.id|4|bet,bet,bet,bet (msg para cada jogador atualizar a tela de bets) (1msg)
-ASK_CARD = 5  # dealer.id|next_player.id|5|card,card,card,card
-RESULTS = 6  # dealer.id|next_player.id|7|life,life,life,life
+NEW_DEALER = 1
+DEAL_CARDS = 2
+ASK_BETS = 3
+SHOW_BETS = 4
+ASK_CARD = 5
+RESULTS = 6
 UPDATE_SCOREBOARD = 7
 
 
@@ -27,6 +29,7 @@ class Game:
         self.hands = [[] for _ in range(NUM_PLAYERS)]
         self.bets = [-1] * NUM_PLAYERS
         self.deck = []
+        self.played_cards = [""] * NUM_PLAYERS  # Track played cards
 
     def create_deck(self):
         self.deck = [{"suit": suit, "rank": rank} for suit in SUITS for rank in RANKS]
@@ -37,7 +40,7 @@ class Game:
         for i in range(NUM_PLAYERS):
             self.hands[i] = [self.deck.pop() for _ in range(NUM_CARDS)]
         print(f"Player {self.player_id} dealt cards.")
-        self.print_hand()
+        self.update_display()
 
         for i in range(NUM_PLAYERS):
             if i != self.player_id:
@@ -47,15 +50,47 @@ class Game:
                 self.network.send(self.player_id, i, DEAL_CARDS, data)
 
     def print_hand(self):
-        print(f"Player {self.player_id} hand:")
-        for index, card in enumerate(self.hands[self.player_id]):
-            print(f"{index}: {card['rank']} {SUIT_EMOJIS[card['suit']]}")
+        hand_table = [
+            [index, f"{card['rank']} {SUIT_EMOJIS[card['suit']]}"]
+            for index, card in enumerate(self.hands[self.player_id])
+        ]
+        print(
+            Fore.CYAN + "\n Player {}'s hand:".format(self.player_id) + Style.RESET_ALL
+        )
+        print(
+            tabulate(
+                hand_table,
+                headers=[
+                    Fore.YELLOW + "Index" + Style.RESET_ALL,
+                    Fore.YELLOW + "Card" + Style.RESET_ALL,
+                ],
+                tablefmt="fancy_grid",
+            )
+        )
 
     def print_scoreboard(self):
-        print("\nScoreboard:")
-        for i in range(NUM_PLAYERS):
-            print(f"Player {i}: {self.lives[i]} lives")
-        print()
+        scoreboard_table = [
+            [
+                f"Player {i}",
+                f"{life} {SUIT_EMOJIS['Hearts']}",
+                f"Bet: {' ' if bet == -1 else bet}",
+                f"Card: {self.played_cards[i]}",
+            ]
+            for i, (life, bet) in enumerate(zip(self.lives, self.bets))
+        ]
+        print(Fore.CYAN + "\n Scoreboard:" + Style.RESET_ALL)
+        print(
+            tabulate(
+                scoreboard_table,
+                headers=[
+                    Fore.YELLOW + "Player" + Style.RESET_ALL,
+                    Fore.YELLOW + "Lives" + Style.RESET_ALL,
+                    Fore.YELLOW + "Bet" + Style.RESET_ALL,
+                    Fore.YELLOW + "Played Card" + Style.RESET_ALL,
+                ],
+                tablefmt="fancy_grid",
+            )
+        )
 
     def update_scoreboard(self):
         lives_data = ",".join([str(life) for life in self.lives])
@@ -66,13 +101,25 @@ class Game:
             lives_data,
         )
 
+    def update_display(self):
+        clear_screen()
+        self.print_scoreboard()
+        self.print_hand()
+
     def start(self):
-        print("Player", self.player_id, "joined the game!")
+        print(
+            Fore.GREEN + "Player" + Style.RESET_ALL,
+            self.player_id,
+            Fore.GREEN + "joined the game!" + Style.RESET_ALL,
+        )
         if self.is_dealer:
-            input("Press ENTER to shuffle the cards after all players are online!...")
+            input(
+                Fore.YELLOW
+                + "Press ENTER to shuffle the cards after all players are online!..."
+                + Style.RESET_ALL
+            )
             self.create_deck()
-            print("Cards have been shuffled!...")
-            clear_screen()
+            print(Fore.YELLOW + "Cards have been shuffled!..." + Style.RESET_ALL)
             self.deal_cards()
             self.ask_for_bets()
 
@@ -87,14 +134,16 @@ class Game:
                         message["action"],
                         message["data"],
                     )
-                self.print_scoreboard()
+                self.update_display()
 
     def ask_for_bets(self):
         if self.is_dealer:
+            self.update_display()
             bet = self.get_valid_bet()
             self.bets[self.player_id] = bet
             bet_data = f"{self.player_id}-{bet}"
             self.network.send(self.player_id, self.next_player_id, ASK_BETS, bet_data)
+        self.update_display()
 
     def place_bet(self, player_id, bet):
         self.bets[player_id] = bet
@@ -102,15 +151,18 @@ class Game:
             bet != -1 for bet in self.bets
         ):  # Check if all players have placed their bets
             self.show_bets()
+        self.update_display()
 
     def show_bets(self):
         if self.is_dealer:
             bets_data = ",".join([f"{i}-{self.bets[i]}" for i in range(NUM_PLAYERS)])
             self.network.send(self.player_id, self.next_player_id, SHOW_BETS, bets_data)
+        self.update_display()
 
     def ask_for_cards(self):
         if self.is_dealer:
-            print("Starting the game...")
+            clear_screen()
+            print(Fore.YELLOW + "Starting the game..." + Style.RESET_ALL)
             self.print_hand()
             card_index = self.get_valid_card_index()
             card = self.hands[self.player_id][card_index]
@@ -119,25 +171,41 @@ class Game:
             )
             card_data = f"{self.player_id}-{self.hands[self.player_id][card_index]['rank']}-{self.hands[self.player_id][card_index]['suit']}"
             self.hands[self.player_id].pop(card_index)
+            self.played_cards[self.player_id] = (
+                f"{card['rank']} {SUIT_EMOJIS[card['suit']]}"
+            )
             self.network.send(self.player_id, self.next_player_id, ASK_CARD, card_data)
+        self.update_display()
 
     def get_valid_card_index(self):
         while True:
+            self.update_display()
             try:
                 card_index = int(
-                    input(f"Player {self.player_id}, choose a card by index: ")
+                    input(
+                        Fore.MAGENTA
+                        + f"Player {self.player_id}, choose a card by index: "
+                        + Style.RESET_ALL
+                    )
                 )
                 if 0 <= card_index < len(self.hands[self.player_id]):
                     return card_index
                 else:
-                    print("Invalid index. Please choose a valid card index.")
+                    print(
+                        Fore.RED
+                        + "Invalid index. Please choose a valid card index."
+                        + Style.RESET_ALL
+                    )
             except ValueError:
-                print("Invalid input. Please enter a number.")
+                print(
+                    Fore.RED + "Invalid input. Please enter a number." + Style.RESET_ALL
+                )
 
     def handle_round_end(self, card_data):
-        print("Round ended. Cards played:", card_data)
+        print(Fore.GREEN + "Round ended. Cards played:" + Style.RESET_ALL, card_data)
         self.compute_round_results(card_data)
         self.start_next_round()
+        self.update_display()
 
     # implementar
     def compute_round_results(self, card_data):
@@ -169,17 +237,31 @@ class Game:
                 for card in message["data"].split(",")
             ]
             self.print_hand()
+        self.update_display()
 
     def get_valid_bet(self):
         while True:
+            self.update_display()
             try:
-                bet = int(input(f"Player {self.player_id}, enter your bet: "))
+                bet = int(
+                    input(
+                        Fore.MAGENTA
+                        + f"Player {self.player_id}, enter your bet: "
+                        + Style.RESET_ALL
+                    )
+                )
                 if 0 <= bet < len(self.hands[self.player_id]):
                     return bet
                 else:
-                    print("Invalid bet. Please choose a valid bet.")
+                    print(
+                        Fore.RED
+                        + "Invalid bet. Please choose a valid bet."
+                        + Style.RESET_ALL
+                    )
             except ValueError:
-                print("Invalid input. Please enter a number.")
+                print(
+                    Fore.RED + "Invalid input. Please enter a number." + Style.RESET_ALL
+                )
 
     def handle_ask_bet(self, message):
         bet_info = message["data"].split(",")
@@ -201,36 +283,51 @@ class Game:
                 ASK_BETS,
                 ",".join(bet_info),
             )
+        self.update_display()
 
     def handle_show_bets(self, message):
-        print(f"Bets: {message['data']}")
+        print(Fore.GREEN + f"Bets: {message['data']}" + Style.RESET_ALL)
         if self.is_dealer:
             self.ask_for_cards()
         else:
             self.network.send(
                 message["source"], self.next_player_id, SHOW_BETS, message["data"]
             )
+        self.update_display()
 
     def handle_ask_card(self, message):
-        played_cards = message["data"].split(",")
-        print(played_cards)
-        if not any(
-            self.player_id == int(card.split("-")[0]) for card in played_cards if card
-        ):
+        card_info = message["data"].split(",")
+        for card in card_info:
+            player, rank, suit = card.split("-")
+            self.played_cards[int(player)] = f"{rank} {SUIT_EMOJIS[suit]}"
+
+        if self.played_cards[self.player_id] == "":
             print("Your hand:")
             self.print_hand()
             card_index = self.get_valid_card_index()
-            print("Card choosed by Player")
             card = self.hands[self.player_id].pop(card_index)
-            played_cards.append(f"{self.player_id}-{card['rank']}-{card['suit']}")
+            card_info.append(f"{self.player_id}-{card['rank']}-{card['suit']}")
+            self.played_cards[self.player_id] = (
+                f"{card['rank']} {SUIT_EMOJIS[card['suit']]}"
+            )
 
-        if self.is_dealer:
-            print("All players have played their cards.")
-            self.handle_round_end(",".join(played_cards))
+        if all(card != "" for card in self.played_cards):
+            if self.is_dealer:
+                print(
+                    Fore.GREEN
+                    + "All players have played their cards."
+                    + Style.RESET_ALL
+                )
+                self.handle_round_end(",".join(card_info))
+            else:
+                self.network.send(
+                    self.player_id, self.next_player_id, ASK_CARD, ",".join(card_info)
+                )
         else:
             self.network.send(
-                self.player_id, self.next_player_id, ASK_CARD, ",".join(played_cards)
+                self.player_id, self.next_player_id, ASK_CARD, ",".join(card_info)
             )
+        self.update_display()
 
     # implementar
     def handle_new_dealer(self, message):
@@ -239,3 +336,4 @@ class Game:
     # implementar
     def handle_update_scoreboard(self, message):
         pass
+
