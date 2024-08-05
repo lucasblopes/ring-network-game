@@ -290,6 +290,10 @@ class Game:
         if self.is_dealer:
             self.ask_for_cards()
         else:
+            bet_info = message["data"].split(",")
+            for bet in bet_info:
+                player, amount = map(int, bet.split("-"))
+                self.bets[player] = amount
             self.network.send(
                 message["source"], self.next_player_id, SHOW_BETS, message["data"]
             )
@@ -336,4 +340,3 @@ class Game:
     # implementar
     def handle_update_scoreboard(self, message):
         pass
-
