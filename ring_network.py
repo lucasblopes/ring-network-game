@@ -12,6 +12,7 @@ class Network:
         self.next_host = HOSTS[(player_id + 1) % NUM_PLAYERS]
         self.next_port = PORTS[(player_id + 1) % NUM_PLAYERS]
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.sock.bind((self.host, self.port))
         self.baton = player_id == 0
 
