@@ -8,6 +8,7 @@ init()
 
 SUITS = ["Hearts", "Diamonds", "Clubs", "Spades"]
 RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
+TRUCO_PRECEDENCE = {rank: index for index, rank in enumerate(RANKS)}
 
 # Actions
 NEW_DEALER = 1
@@ -15,8 +16,9 @@ DEAL_CARDS = 2
 ASK_BETS = 3
 SHOW_BETS = 4
 ASK_CARD = 5
-RESULTS = 6
-UPDATE_SCOREBOARD = 7
+HAND_RESULTS = 6
+ROUND_RESULTS = 7
+UPDATE_SCOREBOARD = 8
 
 
 class Game:
@@ -30,6 +32,7 @@ class Game:
         self.bets = [-1] * NUM_PLAYERS
         self.deck = []
         self.played_cards = [""] * NUM_PLAYERS  # Track played cards
+        self.points = [0] * NUM_PLAYERS  # Track points of each player
 
     def create_deck(self):
         self.deck = [{"suit": suit, "rank": rank} for suit in SUITS for rank in RANKS]
@@ -75,6 +78,7 @@ class Game:
                 f"{life} {SUIT_EMOJIS['Hearts']}",
                 f"Bet: {' ' if bet == -1 else bet}",
                 f"Card: {self.played_cards[i]}",
+                f"Points: {self.points[i]}",
             ]
             for i, (life, bet) in enumerate(zip(self.lives, self.bets))
         ]
@@ -87,6 +91,7 @@ class Game:
                     Fore.YELLOW + "Lives" + Style.RESET_ALL,
                     Fore.YELLOW + "Bet" + Style.RESET_ALL,
                     Fore.YELLOW + "Played Card" + Style.RESET_ALL,
+                    Fore.YELLOW + "Points" + Style.RESET_ALL,
                 ],
                 tablefmt="fancy_grid",
             )
@@ -94,11 +99,12 @@ class Game:
 
     def update_scoreboard(self):
         lives_data = ",".join([str(life) for life in self.lives])
+        points_data = ",".join([str(point) for point in self.points])
         self.network.send(
             self.player_id,
             self.next_player_id,
             UPDATE_SCOREBOARD,
-            lives_data,
+            f"{lives_data}|{points_data}",
         )
 
     def update_display(self):
@@ -222,6 +228,7 @@ class Game:
             ASK_BETS: self.handle_ask_bet,
             SHOW_BETS: self.handle_show_bets,
             ASK_CARD: self.handle_ask_card,
+            HAND_RESULTS: self.handle_hand_results,
             NEW_DEALER: self.handle_new_dealer,
             UPDATE_SCOREBOARD: self.handle_update_scoreboard,
         }
@@ -332,6 +339,10 @@ class Game:
                 self.player_id, self.next_player_id, ASK_CARD, ",".join(card_info)
             )
         self.update_display()
+
+    # implementar
+    def handle_hand_results(self, message):
+        pass
 
     # implementar
     def handle_new_dealer(self, message):
