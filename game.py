@@ -6,8 +6,9 @@ from colorama import init, Fore, Style
 # Initialize colorama
 init()
 
-SUITS = ["Hearts", "Diamonds", "Clubs", "Spades"]
-RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
+# Cartas do Truco
+SUITS = {"H", "D", "C", "S"}
+RANKS = ["4", "5", "6", "7", "Q", "J", "K", "A", "2", "3"]
 TRUCO_PRECEDENCE = {rank: index for index, rank in enumerate(RANKS)}
 
 # Actions
@@ -16,8 +17,8 @@ DEAL_CARDS = 2
 ASK_BETS = 3
 SHOW_BETS = 4
 ASK_CARD = 5
-HAND_RESULTS = 6
-ROUND_RESULTS = 7
+ROUND_RESULTS = 6
+HAND_RESULTS = 7
 UPDATE_SCOREBOARD = 8
 
 
@@ -42,15 +43,15 @@ class Game:
         input("Press ENTER to deal cards...")
         for i in range(NUM_PLAYERS):
             self.hands[i] = [self.deck.pop() for _ in range(NUM_CARDS)]
-        print(f"Player {self.player_id} dealt cards.")
+        (f"Player {self.player_id} dealt cards.")
         self.update_display()
 
         for i in range(NUM_PLAYERS):
             if i != self.player_id:
-                data = ",".join(
+                cards_data = ",".join(
                     [f"{card['rank']}-{card['suit']}" for card in self.hands[i]]
                 )
-                self.network.send(self.player_id, i, DEAL_CARDS, data)
+                self.network.send(self.player_id, i, DEAL_CARDS, cards_data)
 
     def print_hand(self):
         hand_table = [
@@ -75,9 +76,9 @@ class Game:
         scoreboard_table = [
             [
                 f"Player {i}",
-                f"{life} {SUIT_EMOJIS['Hearts']}",
+                f"{life} {SUIT_EMOJIS['H']}",
                 f"Bet: {' ' if bet == -1 else bet}",
-                f"Card: {self.played_cards[i]}",
+                f"Card: {' ' if not self.played_cards[i] else f'{self.played_cards[i].split()[0]} {SUIT_EMOJIS[self.played_cards[i].split()[1]]}'}",
                 f"Points: {self.points[i]}",
             ]
             for i, (life, bet) in enumerate(zip(self.lives, self.bets))
@@ -177,9 +178,7 @@ class Game:
             )
             card_data = f"{self.player_id}-{self.hands[self.player_id][card_index]['rank']}-{self.hands[self.player_id][card_index]['suit']}"
             self.hands[self.player_id].pop(card_index)
-            self.played_cards[self.player_id] = (
-                f"{card['rank']} {SUIT_EMOJIS[card['suit']]}"
-            )
+            self.played_cards[self.player_id] = f"{card['rank']} {card['suit']}"
             self.network.send(self.player_id, self.next_player_id, ASK_CARD, card_data)
         self.update_display()
 
@@ -207,15 +206,45 @@ class Game:
                     Fore.RED + "Invalid input. Please enter a number." + Style.RESET_ALL
                 )
 
-    def handle_round_end(self, card_data):
-        print(Fore.GREEN + "Round ended. Cards played:" + Style.RESET_ALL, card_data)
-        self.compute_round_results(card_data)
-        self.start_next_round()
-        self.update_display()
+    def handle_round_end(self):
+        if self.is_dealer:
+            print(Fore.GREEN + "All players have played their cards.")
+            input(Fore.GREEN + "Press ENTER to compute the round results...")
+            self.compute_round_results()
+            self.start_next_round()
+            self.update_display()
 
-    # implementar
-    def compute_round_results(self, card_data):
-        pass
+    def compute_round_results(self):
+        highest_card = {}
+        highest_player = 0
+
+        for i, card in enumerate(self.played_cards):
+            rank, suit = card.split(" ")
+            if (
+                not highest_card
+                or TRUCO_PRECEDENCE[rank] > TRUCO_PRECEDENCE[highest_card["rank"]]
+            ):
+                highest_card = {"rank": rank, "suit": suit}
+                highest_player = i
+
+        self.points[highest_player] += 1
+        input(
+            Fore.YELLOW
+            + f"Player {highest_player} wins the round with {highest_card['rank']} {SUIT_EMOJIS[highest_card['suit']]}. Press ENTER to continue..."
+            + Style.RESET_ALL
+        )
+
+        # Prepare the card data with winner/loser information
+        card_data = []
+        for i, card in enumerate(self.played_cards):
+            rank, suit = card.split(" ")
+            status = "w" if i == highest_player else "l"
+            card_data.append(f"{i}-{rank}-{suit}-{status}")
+
+        # Send message to the network about the round winner
+        self.network.send(
+            self.player_id, self.next_player_id, ROUND_RESULTS, ",".join(card_data)
+        )
 
     # implementar
     def start_next_round(self):
@@ -228,6 +257,7 @@ class Game:
             ASK_BETS: self.handle_ask_bet,
             SHOW_BETS: self.handle_show_bets,
             ASK_CARD: self.handle_ask_card,
+            ROUND_RESULTS: self.handle_round_results,
             HAND_RESULTS: self.handle_hand_results,
             NEW_DEALER: self.handle_new_dealer,
             UPDATE_SCOREBOARD: self.handle_update_scoreboard,
@@ -310,26 +340,19 @@ class Game:
         card_info = message["data"].split(",")
         for card in card_info:
             player, rank, suit = card.split("-")
-            self.played_cards[int(player)] = f"{rank} {SUIT_EMOJIS[suit]}"
+            self.played_cards[int(player)] = f"{rank} {suit}"
 
+        self.update_display()
         if self.played_cards[self.player_id] == "":
-            print("Your hand:")
             self.print_hand()
             card_index = self.get_valid_card_index()
             card = self.hands[self.player_id].pop(card_index)
             card_info.append(f"{self.player_id}-{card['rank']}-{card['suit']}")
-            self.played_cards[self.player_id] = (
-                f"{card['rank']} {SUIT_EMOJIS[card['suit']]}"
-            )
+            self.played_cards[self.player_id] = f"{card['rank']} {card['suit']}"
 
         if all(card != "" for card in self.played_cards):
             if self.is_dealer:
-                print(
-                    Fore.GREEN
-                    + "All players have played their cards."
-                    + Style.RESET_ALL
-                )
-                self.handle_round_end(",".join(card_info))
+                self.handle_round_end()
             else:
                 self.network.send(
                     self.player_id, self.next_player_id, ASK_CARD, ",".join(card_info)
@@ -338,7 +361,43 @@ class Game:
             self.network.send(
                 self.player_id, self.next_player_id, ASK_CARD, ",".join(card_info)
             )
+
+    # implementar
+    def handle_round_results(self, message):
+        if self.is_dealer:
+            self.played_cards = [""] * NUM_PLAYERS
+            self.update_display()
+            self.ask_for_cards()
+            return
+
+        # Atualizar o placar
+        round_results = message["data"].split(",")
+        winner_id = -1
+        winner_card = ["", ""]
+
+        for result in round_results:
+            player_id, rank, suit, status = result.split("-")
+            self.played_cards[int(player_id)] = f"{rank} {suit}"
+            if status == "w":
+                winner_card[0] = rank
+                winner_card[1] = suit
+                winner_id = player_id
+                self.points[int(player_id)] += 1
+
         self.update_display()
+        if winner_id != -1:
+            input(
+                Fore.YELLOW
+                + f"Player {winner_id} wins the round with {winner_card[0]} {SUIT_EMOJIS[winner_card[1]]}. Press ENTER to continue..."
+                + Style.RESET_ALL
+            )
+
+        # Resetar as cartas jogadas
+        self.played_cards = [""] * NUM_PLAYERS
+        self.update_display()
+        self.network.send(
+            self.player_id, self.next_player_id, ROUND_RESULTS, message["data"]
+        )
 
     # implementar
     def handle_hand_results(self, message):
