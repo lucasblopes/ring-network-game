@@ -14,9 +14,9 @@ PORTS = [5000, 5001, 5002, 5003]  # Portas dos jogadores
 
 # Misc
 if EMOJIS:
-    SUIT_EMOJIS = {"H": "󰋑", "D": "󰣏", "C": "󰣎", "S": "󰣑"}
+    SUIT_EMOJIS = {"D": "󰣏", "S": "󰣑", "H": "󰋑", "C": "󰣎"}
 else:
-    SUIT_EMOJIS = {"H": "(Hearts)", "D": "(Diamonds)", "C": "(Clubs)", "S": "(Spades)"}
+    SUIT_EMOJIS = {"D": "(Diamonds)", "S": "(Spades)", "H": "(Hearts)", "C": "(Clubs)"}
 
 
 def clear_screen():
