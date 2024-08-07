@@ -1,0 +1,80 @@
+\documentclass[conference]{IEEEtran}
+\usepackage[portuguese]{babel}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{pgfplots}
+\usetikzlibrary{plotmarks}
+\pgfplotsset{compat=newest}
+\pgfkeys{/pgf/number format/.cd,1000 sep={}}
+
+\usepackage[nolist]{acronym}
+\usepackage{multirow}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\begin{document}
+
+\begin{acronym}[TDMA]
+    \acro{IEEE}{\textit{Institute of Electrical and Electronics Engineers}}
+    \acro{ABNT}{Associação Brasileira de Normas Técnicas}
+\end{acronym}
+
+\newlength\figureheight
+\newlength\figurewidth
+
+\title{Relatório do Trabalho 02 - Redes 1}
+
+\author{\IEEEauthorblockN{Lucas Gabriel Batista Lopes - GRR20220062\\ Rafael Munhoz da Cunha Marques - GRR20224385}\\
+\textit{Universidade Federal do Paraná -- UFPR}\\
+Redes de Computadores 1\\
+Professor: Luiz Carlos Pessoa Albini\\
+06 de Agosto de 2024\\
+Curitiba, Brasil}
+
+\maketitle
+
+\begin{abstract}
+    O objetivo deste relatório é explicar as decisões e estratégias de projeto tomadas para a implementação do jogo chamado "fodinha" ou "foda-se" em uma rede em anel de quatro computadores.
+\end{abstract}
+
+\begin{IEEEkeywords}
+rede em anel, jogos, sockets, python
+\end{IEEEkeywords}
+
+\section{Introdução}
+O jogo "fodinha" ou "foda-se" é jogado com quatro jogadores, cada um recebendo cartas de um baralho padrão. Cada rodada envolve a distribuição de cartas, apostas e jogadas de cartas. O objetivo é ganhar rodadas e acumular pontos.
+
+\section{Regras do Jogo}
+O jogo começa com o carteador embaralhando e distribuindo as cartas para cada jogador. Cada jogador começa com 12 vidas e 13 cartas. Depois que todos recebem as cartas, realizam suas apostas de quantas rodadas cada um acredita que irá vencer. Em seguida, cada jogador escolhe uma carta para jogar na rodada. Vence a rodada o jogador que jogou a carta de maior valor, seguindo a mesma precedência do truco. Caso ocorra empate, vence o jogador que lançou a carta por último. Esse processo é repetido até que as cartas na mão dos jogadores acabem. Depois disso, cada jogador tem a sua vida descontada pela diferença entre o seu palpite e o seu número de vitórias. Inicia-se então um novo jogo, com os jogadores recebendo uma carta a menos, e o processo se repete até que reste apenas um vencedor.
+
+\section{Rede em Anel}
+Implementamos uma rede em anel utilizando sockets DGRAM para comunicação entre quatro máquinas. O controle de acesso à rede é feito por passagem de bastão, onde todas as mensagens percorrem todo o anel. O carteador é o jogador que possui o bastão. Todas as mensagens são geradas por ele e passadas na rede. Os apostadores podem ler a mensagem, processá-la, modificá-la e enviar para o próximo jogador da rede. 
+
+No código, a rede em anel foi implementada por meio da classe \texttt{Network}, que contém atributos de cada máquina, como \texttt{id}, \texttt{ip}, \texttt{host}, \texttt{prev\_ip}, \texttt{prev\_host}, \texttt{next\_ip} e \texttt{next\_host} para que cada máquina sempre envie a mensagem para o próximo jogador da rede em anel.
+
+\section{Corpo das Mensagens}
+As mensagens seguem o formato \texttt{"source|destination|action|data"}. O bastão é passado para o próximo jogador após cada rodada. Não há temporização ou timeout para o bastão ou as mensagens.
+
+\begin{itemize}
+    \item \texttt{source/destination} é um número inteiro de 0-3 e indica a origem/destino da mensagem, respectivamente.
+    \item \texttt{action} também é um número inteiro, que indica uma das ações que deve ser processada pelo receptor:
+    \begin{itemize}
+        \item \texttt{NEW\_DEALER = 1} - Para passar o bastão e o próximo jogador ser o carteador.
+        \item \texttt{DEAL\_CARDS = 2} - Para o carteador enviar as cartas para cada jogador (uma mensagem para cada).
+        \item \texttt{ASK\_BETS = 3} - Carteador envia essa mensagem para os jogadores fornecerem as suas apostas (uma mensagem que dá volta na rede e cada apostador vai adicionando a sua aposta).
+        \item \texttt{SHOW\_BETS = 4} - Uma mensagem que dá a volta na rede para que todos os jogadores sejam notificados das apostas de cada um.
+        \item \texttt{ASK\_CARD = 5} - Assim como \texttt{ASK\_BETS}, é uma mensagem que cada jogador vai modificando para indicar qual carta irá jogar na rodada.
+        \item \texttt{ROUND\_RESULTS = 6} - Depois que todos jogaram suas cartas, o carteador envia essa mensagem divulgando as cartas que todos os jogadores jogaram e quem foi o vencedor.
+        \item \texttt{HAND\_RESULTS = 7} - Para divulgar o resultado de uma mão do jogo.
+        \item \texttt{UPDATE\_SCOREBOARD = 8} - Para atualizar o placar dos jogadores.
+    \end{itemize}
+    \item \texttt{data} é um campo de dados que varia de acordo com a \texttt{action}.
+\end{itemize}
+
+\end{document}
+
