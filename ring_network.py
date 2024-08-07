@@ -18,6 +18,7 @@ class Network:
 
     def send(self, source, destination, action, data):
         message = f"{source}|{destination}|{action}|{data}"
+        #print("Sent " + message)
         # input(message)
         self.sock.sendto(message.encode("utf-8"), (self.next_host, self.next_port))
 
@@ -26,6 +27,7 @@ class Network:
         if addr == (self.prev_host, self.prev_port):
             message = data.decode("utf-8")
             # input(message)
+            # print("Received " + message)
             return self.parse_message(message)
         else:
             return None

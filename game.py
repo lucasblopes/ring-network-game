@@ -19,7 +19,7 @@ SHOW_BETS = 4
 ASK_CARD = 5
 ROUND_RESULTS = 6
 HAND_RESULTS = 7
-UPDATE_SCOREBOARD = 8
+PLAYER_WON = 8
 
 
 class Game:
@@ -62,6 +62,8 @@ class Game:
         )
 
     def print_hand(self):
+        if self.lives[self.player_id] < 1:
+            return
         hand_table = [
             [index, card.print_card()]
             for index, card in enumerate(self.hands[self.player_id])
@@ -90,7 +92,8 @@ class Game:
     def deal_cards(self):
         input("Press ENTER to deal cards...")
         for i in range(NUM_PLAYERS):
-            self.hands[i] = [self.deck.pop() for _ in range(NUM_CARDS)]
+            if (self.lives[i] > 0):
+                self.hands[i] = [self.deck.pop() for _ in range(NUM_CARDS)]
         print(f"Player {self.player_id} dealt cards.")
         self.update_display()
 
@@ -98,12 +101,20 @@ class Game:
             if i != self.player_id:
                 cards_data = ",".join(str(card) for card in self.hands[i])
                 self.network.send(self.player_id, i, DEAL_CARDS, cards_data)
-
-    def update_scoreboard(self):
-        pass
-        # lives_data = ",".join([str(life) for life in self.lives])
-        # points_data = ",".join([str(point) for point in self.points])
-        # self.network.send(self.player_idt self.next_player_id,UPDATE_SCOREBOARD,f"{lives_data}|{points_data}")
+                self.network.receive()
+    
+    def check_winner(self):
+        players = 0
+        index = 0
+        for i in range(NUM_PLAYERS):
+            if self.lives[i] > 0:
+                index = i
+                players+=1
+        if players == 1:
+            self.network.send(self.player_id, self.next_player_id, PLAYER_WON, index)
+            self.update_display()
+            return True
+        return False
 
     def start(self):
         print(
@@ -114,7 +125,7 @@ class Game:
         if self.is_dealer:
             input(
                 Fore.YELLOW
-                + "Press ENTER to shuffle the cards after all players are online!..."
+                + "Press ENTER to shuffle the cards when all players are ready!..."
                 + Style.RESET_ALL
             )
             self.create_deck()
@@ -126,49 +137,41 @@ class Game:
             message = self.network.receive()
             if message:
                 self.process_game_message(message)
-                if message["destination"] != self.player_id:
-                    self.network.send(
-                        message["source"],
-                        message["destination"],
-                        message["action"],
-                        message["data"],
-                    )
                 self.update_display()
 
     def ask_for_bets(self):
-        if self.is_dealer:
+        bet_data = ""
+        if self.is_dealer and self.lives[self.player_id] > 0:
             self.update_display()
             bet = self.get_valid_bet()
             self.bets[self.player_id] = bet
             bet_data = f"{self.player_id}-{bet}"
-            self.network.send(self.player_id, self.next_player_id, ASK_BETS, bet_data)
-        self.update_display()
-
-    def place_bet(self, player_id, bet):
-        self.bets[player_id] = bet
-        if all(
-            bet != -1 for bet in self.bets
-        ):  # Check if all players have placed their bets
-            self.show_bets()
+        self.network.send(self.player_id, self.next_player_id, ASK_BETS, bet_data)
         self.update_display()
 
     def show_bets(self):
+        bets = []
         if self.is_dealer:
-            bets_data = ",".join([f"{i}-{self.bets[i]}" for i in range(NUM_PLAYERS)])
-            self.network.send(self.player_id, self.next_player_id, SHOW_BETS, bets_data)
+            for i in range(NUM_PLAYERS):
+                if self.lives[i] > 0:
+                    bet = f"{i}-{self.bets[i]}"
+                    bets.append(bet)
+            self.network.send(self.player_id, self.next_player_id, SHOW_BETS, ",".join(bets))
         self.update_display()
 
     def ask_for_cards(self):
         if self.is_dealer:
             clear_screen()
             print(Fore.YELLOW + "Starting the game..." + Style.RESET_ALL)
-            self.print_hand()
-            card_index = self.get_valid_card_index()
-            card = self.hands[self.player_id][card_index]
-            print(f"Player {self.player_id} chose card {card.print_card()}")
-            card_data = f"{self.player_id}-{card}"
-            self.hands[self.player_id].pop(card_index)
-            self.played_cards[self.player_id] = str(card)
+            card_data = ""
+            if self.lives[self.player_id] > 0:
+                self.print_hand()
+                card_index = self.get_valid_card_index()
+                card = self.hands[self.player_id][card_index]
+                print(f"Player {self.player_id} chose card {card.print_card()}")
+                card_data = f"{self.player_id}-{card}"
+                self.hands[self.player_id].pop(card_index)
+                self.played_cards[self.player_id] = str(card)
             self.network.send(self.player_id, self.next_player_id, ASK_CARD, card_data)
         self.update_display()
 
@@ -201,20 +204,19 @@ class Game:
             print(Fore.GREEN + "All players have played their cards.")
             input(Fore.GREEN + "Press ENTER to compute the round results...")
             self.compute_round_results()
-            self.start_next_round()
             self.update_display()
 
     def compute_round_results(self):
         if self.is_dealer:
             # Initialize with player card 0
-            rank, suit = self.played_cards[0].split("-")
-            highest_card = Card(rank, suit)
-            highest_player = 0
+            highest_card = Card("4","D")
+            highest_player = -1
 
             for i, card_str in enumerate(self.played_cards):
+                if (card_str == ""): continue
                 rank, suit = card_str.split("-")
                 card = Card(rank, suit)
-                # Obs.: If two players have the exactly same card, the last that played, win
+                # Obs.: If two players have the exactly same card, the last that played, wins
                 if RANKS.index(card.rank) > RANKS.index(highest_card.rank) or (
                     RANKS.index(card.rank) == RANKS.index(highest_card.rank)
                     and SUITS.index(card.suit) >= SUITS.index(highest_card.suit)
@@ -233,6 +235,7 @@ class Game:
             # Prepare the card data with winner/loser information
             card_data = []
             for i, card_str in enumerate(self.played_cards):
+                if (card_str == ""): continue
                 rank, suit = card_str.split("-")
                 card = Card(rank, suit)
                 status = "w" if i == highest_player else "l"
@@ -246,8 +249,36 @@ class Game:
             # Reset played cards for next round
             self.played_cards = [""] * NUM_PLAYERS
 
-    def start_next_round(self):
-        return
+    # palyer-bet-points-lives
+    def calculate_hand_results(self):
+        data = []
+        for i in range(NUM_PLAYERS) :
+            if (self.lives[i] <= 0): continue
+            lives_lost = abs(self.points[i] - self.bets[i])
+            self.lives[i] -= lives_lost
+            data.append(f"{i}-{self.bets[i]}-{self.points[i]}-{self.lives[i]}")
+            if (self.lives[i] > 0) :
+                print(
+                        Fore.YELLOW
+                        + f"Player {i} bet {self.bets[i]} and got {self.points[i]}. He has now {self.lives[i]} lifes"
+                        + Style.RESET_ALL
+                    )
+            else:
+                print(
+                        Fore.RED
+                        + f"Player {i} bet {self.bets[i]} and got {self.points[i]} and is out of the game!"
+                        + Style.RESET_ALL
+                    )
+                self.points[i] = ""
+            self.bets[i] = -1
+            self.points[i] = 0
+
+        input(Fore.GREEN + "Press ENTER to continue..." + Style.RESET_ALL)
+        self.update_display()
+        self.network.send(
+                self.player_id, self.next_player_id, HAND_RESULTS, ",".join(data)
+            )
+            
 
     def process_game_message(self, message):
         action = message["action"]
@@ -259,19 +290,26 @@ class Game:
             ROUND_RESULTS: self.handle_round_results,
             HAND_RESULTS: self.handle_hand_results,
             NEW_DEALER: self.handle_new_dealer,
-            UPDATE_SCOREBOARD: self.handle_update_scoreboard,
+            PLAYER_WON: self.handle_player_won,
         }
         handler = handlers.get(action)
         if handler:
             handler(message)
 
     def handle_deal_cards(self, message):
-        if message["destination"] == self.player_id and not self.is_dealer:
+        if self.is_dealer:
+            return
+        if message["destination"] == self.player_id and not self.is_dealer and self.lives[self.player_id] > 0:
             card_data = message["data"].split(",")
             self.hands[self.player_id] = [
                 Card(card.split("-")[0], card.split("-")[1]) for card in card_data
             ]
-            self.print_hand()
+        self.network.send(message["source"],
+                    message["destination"],
+                    message["action"],
+                    message["data"],
+                )
+        self.print_hand()
         self.update_display()
 
     def get_valid_bet(self):
@@ -285,7 +323,7 @@ class Game:
                         + Style.RESET_ALL
                     )
                 )
-                if 0 <= bet < len(self.hands[self.player_id]):
+                if 0 <= bet <= len(self.hands[self.player_id]):
                     return bet
                 else:
                     input(
@@ -299,12 +337,14 @@ class Game:
                 )
 
     def handle_ask_bet(self, message):
-        bet_info = message["data"].split(",")
-        for bet in bet_info:
-            player, amount = map(int, bet.split("-"))
-            self.bets[player] = amount
+        bet_info = []
+        if message["data"] != "":
+            bet_info = message["data"].split(",")
+            for bet in bet_info:
+                player, amount = map(int, bet.split("-"))
+                self.bets[player] = amount
 
-        if self.bets[self.player_id] == -1:  # Check if this player has placed a bet
+        if self.lives[self.player_id] > 0 and self.bets[self.player_id] == -1:  # Check if this player has placed a bet
             bet = self.get_valid_bet()
             self.bets[self.player_id] = bet
             bet_info.append(f"{self.player_id}-{bet}")
@@ -330,32 +370,29 @@ class Game:
                 player, amount = map(int, bet.split("-"))
                 self.bets[player] = amount
             self.network.send(
-                message["source"], self.next_player_id, SHOW_BETS, message["data"]
+                self.player_id, self.next_player_id, SHOW_BETS, message["data"]
             )
         self.update_display()
 
     def handle_ask_card(self, message):
-        card_info = message["data"].split(",")
-        for card_str in card_info:
-            player_id, rank, suit = card_str.split("-")
-            card = Card(rank, suit)
-            self.played_cards[int(player_id)] = str(card)
+        card_info = []
+        if message["data"] != "" :
+            card_info = message["data"].split(",")
+            for card_str in card_info:
+                player_id, rank, suit = card_str.split("-")
+                card = Card(rank, suit)
+                self.played_cards[int(player_id)] = str(card)
 
         self.update_display()
-        if self.played_cards[self.player_id] == "":
+        if self.played_cards[self.player_id] == "" and self.lives[self.player_id] > 0:
             self.print_hand()
             card_index = self.get_valid_card_index()
             card = self.hands[self.player_id].pop(card_index)
             self.played_cards[self.player_id] = str(card)
             card_info.append(f"{self.player_id}-{str(card)}")
 
-        if all(self.played_cards):
-            if self.is_dealer:
-                self.handle_round_end()
-            else:
-                self.network.send(
-                    self.player_id, self.next_player_id, ASK_CARD, ",".join(card_info)
-                )
+        if self.is_dealer:
+            self.handle_round_end()
         else:
             self.network.send(
                 self.player_id, self.next_player_id, ASK_CARD, ",".join(card_info)
@@ -364,9 +401,12 @@ class Game:
     # implementar
     def handle_round_results(self, message):
         if self.is_dealer:
-            self.played_cards = [""] * NUM_PLAYERS
-            self.update_display()
-            self.ask_for_cards()
+            if (len(self.hands[self.player_id]) == 0):
+                self.calculate_hand_results()
+            else:
+                self.played_cards = [""] * NUM_PLAYERS
+                self.update_display()
+                self.ask_for_cards()
             return
 
         # Atualizar o placar
@@ -381,6 +421,7 @@ class Game:
             self.played_cards[int(player_id)] = str(card)
             if status == "w":
                 winner_id = player_id
+                winner_card = card
                 self.points[int(player_id)] += 1
 
         self.update_display()
@@ -388,7 +429,7 @@ class Game:
             if card:
                 print(
                     Fore.YELLOW
-                    + f"Player {winner_id} wins the round with {card.print_card()}!"
+                    + f"Player {winner_id} wins the round with {winner_card.print_card()}!"
                     + Style.RESET_ALL
                 )
                 input(Fore.GREEN + "Press ENTER to continue..." + Style.RESET_ALL)
@@ -404,12 +445,80 @@ class Game:
 
     # implementar
     def handle_hand_results(self, message):
-        pass
+        if self.is_dealer:
+            print(
+                Fore.GREEN
+                + "Not the dealer anymore, passing baton"
+                + Style.RESET_ALL
+            )
+            input(Fore.GREEN + "Press ENTER to continue..." + Style.RESET_ALL)
+            self.network.send(
+                self.player_id, self.next_player_id, NEW_DEALER, ""
+            )
+            self.update_display()
+            self.is_dealer = False
+            return
+        
+        data = message["data"].split(",")
+        for player_data in data:
+            player_data = player_data.split("-")
+            player_id = int(player_data[0])
+            player_lives = int(player_data[3])
+            self.lives[player_id] = player_lives
+            self.bets[player_id] = -1
+            self.points[player_id] = 0
+            if (player_lives > 0) :
+                print(
+                        Fore.YELLOW
+                        + f"Player {player_id} bet {player_data[1]} and got {player_data[2]}. He has now {player_lives} lifes"
+                        + Style.RESET_ALL
+                    )
+            else:
+                print(
+                        Fore.RED
+                        + f"Player {player_id} bet {player_data[1]} and got {player_data[2]} and is out of the game!"
+                        + Style.RESET_ALL
+                    )
+                self.points[player_id] = ""
+        input(Fore.GREEN + "Press ENTER to continue..." + Style.RESET_ALL)
+        self.update_display()
+        self.network.send(
+                self.player_id, self.next_player_id, HAND_RESULTS, message["data"]
+            )
 
-    # implementar
+
     def handle_new_dealer(self, message):
-        pass
+        self.is_dealer = True
+        if self.check_winner():
+            return
 
-    # implementar
-    def handle_update_scoreboard(self, message):
-        pass
+        self.hands = [[] for _ in range(NUM_PLAYERS)]
+        self.bets = [-1] * NUM_PLAYERS
+        self.deck = []
+        self.played_cards = [""] * NUM_PLAYERS  # Track played cards
+        self.points = [0] * NUM_PLAYERS
+        print(
+                Fore.GREEN
+                + "You are the new dealer"
+                + Style.RESET_ALL
+            )
+        input(
+                Fore.YELLOW
+                + "Press ENTER to shuffle the cards after all players are online!..."
+                + Style.RESET_ALL
+            )
+        self.create_deck()
+        print(Fore.YELLOW + "Cards have been shuffled!..." + Style.RESET_ALL)
+        self.deal_cards()
+        self.ask_for_bets()
+
+    def handle_player_won(self, message):
+        winner = message["data"]
+        self.update_display()
+        print(Fore.GREEN + f"Player {winner} won!"  + Style.RESET_ALL)
+        if not self.is_dealer:
+            self.network.send(
+                    self.player_id, self.next_player_id, PLAYER_WON, message["data"]
+                )
+        exit()
+

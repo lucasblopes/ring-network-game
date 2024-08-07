@@ -3,14 +3,14 @@ import os
 
 # Game configs
 EMOJIS = True
-NUM_CARDS = 4
-LIVES = 3
+NUM_CARDS = 2
+LIVES = 1
 NUM_PLAYERS = 4
 
 # Network config
 BUFFER_SIZE = 1024
 HOSTS = ["127.0.0.1", "127.0.0.1", "127.0.0.1", "127.0.0.1"]  # IPs dos jogadores
-PORTS = [5000, 5001, 5002, 5003]  # Portas dos jogadores
+PORTS = [5000, 5001, 5002, 5004]  # Portas dos jogadores
 
 # Misc
 if EMOJIS:
